@@ -8,7 +8,7 @@ import "@openzeppelin/contracts/utils/Strings.sol";
 
 interface IReasoning {
     function getArgs(bytes memory params) external view returns(Types.FunctionArgs memory);
-    function getReasoningResult(bytes memory result, uint256 actionId, address sender) external;
+    function receiveReasoningResult(bytes memory result, uint256 actionId, address sender) external;
 }
 
 contract ReasoningHub is FunctionsClient, ConfirmedOwner {
@@ -74,7 +74,7 @@ contract ReasoningHub is FunctionsClient, ConfirmedOwner {
     ) internal override {
         Types.Promise memory _promise = Storage._stack(requestId);
         require(err.length == 0 || _promise.sender != address(0), "error execute code");
-        IReasoning(_promise.clientAddress).getReasoningResult(response, _promise.actionId, _promise.sender);
+        IReasoning(_promise.clientAddress).receiveReasoningResult(response, _promise.actionId, _promise.sender);
         emit OnchainReasoning(_promise.actionId, response, _promise.clientAddress,_promise.sender,_promise.functionArgs.args, _promise.functionArgs.bytesArgs);
     }
 

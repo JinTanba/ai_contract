@@ -154,7 +154,7 @@ contract Polikore is IReasoning {
         });
     }
 
-    function getReasoningResult(bytes memory result, uint256 actionId, address sender) external override {
+    function receiveReasoningResult(bytes memory result, uint256 actionId, address sender) external override {
         require(msg.sender == hub, "Only hub can call this function");
         require(actionId == aiActionId, "Invalid action ID");
 
