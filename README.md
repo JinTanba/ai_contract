@@ -57,15 +57,13 @@ executeAction bia ChinalinkFunctions
 
 ## UseCase
 ## Onchain Content Moderation:
-As Lens Protocol and Farcaster become successful and grow in scale, the need for content moderation may arise. However, unlike X, this cannot be done centrally.
-1. have DAOs determine regulatory policies through a democratic process
-2. Ask the LLM to make a decision by giving a prompt such as "output true/false if {{content}} violates {{dao_policy}} or not", rather than having a human manually do it
+We recommend the use of this contract for platforms that are frequently criticized for content moderation due to opaque processes. In other words, it does the following.
+1. set policy through a democratic process by users (e.g.; no violent content. etc.)
+2. set up the prompt as an Action in the reasoningHub.
+(e.g., output {{content}} to {{DAO_PLICY}} with true/false if it is against)
+When a post suspected of violating the policy is found, LLM's inference is executed via contract by the Action registered in step 2.
 
-The problem here is that it is impossible to prove that the judgment made by the LLM in step 2 is really based on the policy set by the DAO.
-
-
-Here, the proposed reasoningContract solves this.
-When the DAO decides on a prompt, it can send it to the reasoningContract and then solve the reasoningContract when it performs the judgment.
+This method can be used to bring transparency and fairness to content moderation.
 
 ```solidity
 // SPDX-License-Identifier: MIT
