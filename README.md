@@ -60,7 +60,8 @@ executeAction bia ChinalinkFunctions
 We recommend the use of this contract for platforms that are frequently criticized for content moderation due to opaque processes. In other words, it does the following.
 1. set policy through a democratic process by users (e.g.; no violent content. etc.)
 2. set up the prompt as an Action in the reasoningHub.
-(e.g., output {{content}} to {{DAO_PLICY}} with true/false if it is against)
+(e.g.,  {{content}} is against {{DAO_PLICY}} or output true/flase)
+
 When a post suspected of violating the policy is found, LLM's inference is executed via contract by the Action registered in step 2.
 
 This method can be used to bring transparency and fairness to content moderation.
