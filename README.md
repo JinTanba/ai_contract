@@ -62,7 +62,7 @@ As Lens Protocol and Farcaster become successful and grow in scale, the need for
 2. Ask the LLM to make a decision by giving a prompt such as "output true/false if {{content}} violates {{dao_policy}} or not", rather than having a human manually do it
 
 The problem here is that it is impossible to prove that the judgment made by the LLM in step 2 is really based on the policy set by the DAO.
-How can we tamper with the prompt in the process of running the LLM to prevent unjust suppression by the center, or to prove that no such injustice has been done?
+
 
 Here, the proposed reasoningContract solves this.
 When the DAO decides on a prompt, it can send it to the reasoningContract and then solve the reasoningContract when it performs the judgment.
