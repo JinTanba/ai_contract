@@ -3,13 +3,29 @@ pragma solidity ^0.8.19;
 
 import {FunctionsClient} from "@chainlink/contracts@1.1.1/src/v0.8/functions/v1_0_0/FunctionsClient.sol";
 import {ConfirmedOwner} from "@chainlink/contracts@1.1.1/src/v0.8/shared/access/ConfirmedOwner.sol";
-import {FunctionsRequest} from "@chainlink/contracts/src/v0.8/functions/v1_0_0/libraries/FunctionsRequest.sol";
+import {FunctionsRequest} from "@chainlink/contracts@1.1.1/src/v0.8/functions/v1_0_0/libraries/FunctionsRequest.sol";
 import "@openzeppelin/contracts/utils/Strings.sol";
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
-interface IReasoning {
-    function getArgs(bytes memory params) external view returns(Types.FunctionArgs memory);
-    function receiveReasoningResult(bytes memory result, uint256 actionId, address sender) external;
+interface IERC677 {
+  event Transfer(address indexed from, address indexed to, uint256 value, bytes data);
+  function transferAndCall(address to, uint256 amount, bytes memory data) external returns (bool);
 }
+interface IReasoning {
+    function getReasoningResult(bytes memory result, uint256 actionId, address sender) external;
+}
+interface IRouterForGetSubscriptionBalance {
+    struct Subscription {
+        uint96 balance;
+        address owner;
+        uint96 blockedBalance;
+        address proposedOwner;
+        address[] consumers;
+        bytes32 flags;
+    }
+    function getSubscription(uint64 subscriptionId) external view returns (Subscription memory);
+}
+
 
 contract ReasoningHub is FunctionsClient, ConfirmedOwner {
     using FunctionsRequest for FunctionsRequest.Request;
@@ -17,8 +33,10 @@ contract ReasoningHub is FunctionsClient, ConfirmedOwner {
 
     address router = 0xf9B8fc078197181C841c296C876945aaa425B278;
     bytes32 donID = 0x66756e2d626173652d7365706f6c69612d310000000000000000000000000000;
+    address link = 0xE4aB69C077896252FAFBD49EFD26B5D171A32410;
     uint32 gasLimit = 300000;
     uint256 actionCount;
+    uint64 subscriptionId=147;
 
     constructor() FunctionsClient(router) ConfirmedOwner(msg.sender) {}
 
@@ -32,7 +50,7 @@ contract ReasoningHub is FunctionsClient, ConfirmedOwner {
         Types.Action storage action = Storage._action(actionCount);
         action.prompt = prompt;
         action.code = code;
-        emit ActionUploaded(actionCount,msg.sender);
+        emit ActionUploaded(actionCount, msg.sender);
         return actionCount;
     }
 
@@ -40,15 +58,19 @@ contract ReasoningHub is FunctionsClient, ConfirmedOwner {
         return Storage._action(id);
     }
 
+    function getSubscriptionBalance() internal view returns(uint256) {
+        return IRouterForGetSubscriptionBalance(router).getSubscription(subscriptionId).balance;
+    }
+
     function executeAction(
         bytes memory encryptedSecretsUrls,
         uint256 actionId,
-        bytes memory params,
-        address _client,
-        Types.FunctionArgs memory _functionArgs
+        Types.FunctionArgs memory functionArgs,
+        uint256 sendAmount,
+        address linkOwner
     ) external {
-        uint64 subId = Storage._subscription()[msg.sender];
-        Types.FunctionArgs memory functionArgs = _functionArgs.args.length == 0 && _functionArgs.bytesArgs.length == 0 ? IReasoning(_client).getArgs(params) : _functionArgs;
+        uint256 oldBalance = getSubscriptionBalance();
+        // Types.FunctionArgs memory functionArgs = _functionArgs.args.length == 0 && _functionArgs.bytesArgs.length == 0 ? IReasoning(_client).getArgs() : _functionArgs;
         Types.Action storage action = Storage._action(actionId);
         FunctionsRequest.Request memory req;
         req.initializeRequestForInlineJavaScript(action.code);
@@ -57,14 +79,17 @@ contract ReasoningHub is FunctionsClient, ConfirmedOwner {
         req.setBytesArgs(functionArgs.bytesArgs);
         bytes32 requestId = _sendRequest(
             req.encodeCBOR(),
-            subId,
+            subscriptionId,
             gasLimit,
             donID
         );
-        Storage._stack(requestId).clientAddress = _client;
+        Storage._stack(requestId).clientAddress = msg.sender;
         Storage._stack(requestId).actionId = actionId;
         Storage._stack(requestId).functionArgs = functionArgs;
-        Storage._stack(requestId).sender = msg.sender;
+        Storage._stack(requestId).sender = linkOwner;
+        Storage._stack(requestId).oldBalance = oldBalance;
+
+        depositLink(linkOwner, sendAmount);
     }
 
     function fulfillRequest(
@@ -73,9 +98,13 @@ contract ReasoningHub is FunctionsClient, ConfirmedOwner {
         bytes memory err
     ) internal override {
         Types.Promise memory _promise = Storage._stack(requestId);
-        require(err.length == 0 || _promise.sender != address(0), "error execute code");
-        IReasoning(_promise.clientAddress).receiveReasoningResult(response, _promise.actionId, _promise.sender);
-        emit OnchainReasoning(_promise.actionId, response, _promise.clientAddress,_promise.sender,_promise.functionArgs.args, _promise.functionArgs.bytesArgs);
+        uint256 payedLink = Storage._linkDeposit()[_promise.sender];
+        uint256 newBalance = getSubscriptionBalance();
+        uint256 usedLink = _promise.oldBalance - newBalance;
+        IReasoning(_promise.clientAddress).getReasoningResult(response, _promise.actionId, _promise.sender);
+        refund(payedLink - usedLink, _promise.sender);
+        emit OnchainReasoning(_promise.actionId, response, _promise.clientAddress, _promise.sender, _promise.functionArgs.args, _promise.functionArgs.bytesArgs);
+        emit Response(requestId, response, err);
     }
 
     function setArgs(string[] memory args, string memory prompt) public pure returns(string[] memory) {
@@ -87,11 +116,20 @@ contract ReasoningHub is FunctionsClient, ConfirmedOwner {
         return completeArgs;
     }
 
-    function join(uint64 subscriptionId) external {
-        Storage._subscription()[msg.sender] = subscriptionId;
-        emit SetSubscription(subscriptionId, msg.sender);
+    // LINK token management functions
+    function depositLink(address to, uint256 sendAmount) public {
+        Storage._linkDeposit()[to] += sendAmount;
+        IERC20(link).transferFrom(to, address(this), sendAmount);
     }
 
+    function refund(uint256 amount, address sender) internal {
+        IERC677(link).transferAndCall(router, amount, abi.encode(subscriptionId));
+        uint256 depositBalance = Storage._linkDeposit()[sender];
+        if(depositBalance > amount) {
+            IERC20(link).transfer(sender, depositBalance - amount);
+        }
+        Storage._linkDeposit()[sender] -= amount;
+    }
 
 }
 
@@ -111,6 +149,7 @@ library Types {
         uint256 actionId;
         FunctionArgs functionArgs;
         address sender;
+        uint256 oldBalance;
     }
 }
 
@@ -118,6 +157,7 @@ library Storage {
     uint8 constant SUBSCRIPTION_SLOT = 1;
     uint8 constant ACTION_SLOT = 2;
     uint8 constant STACK_SLOT = 3;
+    uint8 constant LINK_DEPOSIT_SLOT = 4;
 
     function _action(uint256 id) internal pure returns(Types.Action storage _s) {
         assembly {
@@ -139,6 +179,13 @@ library Storage {
             mstore(0, STACK_SLOT)
             mstore(32, requestId)
             _s.slot := keccak256(0, 64)
+        }
+    }
+
+    function _linkDeposit() internal pure returns(mapping(address => uint256) storage _s) {
+        assembly {
+            mstore(0, LINK_DEPOSIT_SLOT)
+            _s.slot := keccak256(0, 32)
         }
     }
 }

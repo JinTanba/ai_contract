@@ -25,45 +25,40 @@ contract Polikore is IReasoning {
         gov = _gov;
 
         string memory prompt = 
-        "You are an AI that determines whether or not a social networking post violates the stated policy. "
-        "1. First review the public policy guidelines. "
-        "<policy>"
-        "1. Hate speech and discrimination: Discriminatory statements or offensive content based on race, ethnicity, nationality, religion, gender, sexual orientation, age, disability, or other protected characteristics are forbidden."
-        "2. Sharing personal information: Sharing others' personal information (address, phone number, email, etc.) without permission is prohibited."
-        "3. Spreading misinformation: Intentionally spreading false information or fake news is not allowed."
-        "4. Copyright infringement: Unauthorized use or distribution of copyrighted content is prohibited."
-        "5. Promotion of illegal activities: Advertising or encouraging illegal activities or products is forbidden."
-        "Posts that violate this policy may be removed, and users who repeatedly violate these guidelines may be subject to account suspension or permanent banning."
-        "</policy>"
-        "2. Please review the list of submissions below and consider whether each submission violates the policy guidelines."
-        "<posts>"
-        "{{POSTS}}"
-        "</posts>"
-        "3. Output the results according to the following output format."
-        "<violating_posts>"
-        "[List of IDs of posts that violate the policy]"
-        "</violating_posts>"
-        "4. Ensure that the violating_posts section contains a valid array of post IDs, even if the array is empty. For example:"
-        "- If there are violating posts: [1, 3, 5]"
-        "- If there are no violating posts: []";
+            "You are an AI that determines whether or not a social networking post violates the stated policy. "
+            "1. First review the public policy guidelines. "
+            "<policy>"
+            "1. Hate speech and discrimination: Discriminatory statements or offensive content based on race, ethnicity, nationality, religion, gender, sexual orientation, age, disability, or other protected characteristics are forbidden."
+            "2. Sharing personal information: Sharing others' personal information (address, phone number, email, etc.) without permission is prohibited."
+            "3. Spreading misinformation: Intentionally spreading false information or fake news is not allowed."
+            "4. Copyright infringement: Unauthorized use or distribution of copyrighted content is prohibited."
+            "5. Promotion of illegal activities: Advertising or encouraging illegal activities or products is forbidden."
+            "Posts that violate this policy may be removed, and users who repeatedly violate these guidelines may be subject to account suspension or permanent banning."
+            "</policy>"
+            "2. Please review the list of submissions below and consider whether each submission violates the policy guidelines."
+            "<posts>"
+            "{{POSTS}}"
+            "</posts>"
+            "3. Output the results according to the following output format."
+            "<violating_posts>"
+            "[List of IDs of posts that violate the policy]"
+            "</violating_posts>"
+            "4. Ensure that the violating_posts section contains a valid array of post IDs, even if the array is empty. For example:"
+            "- If there are violating posts: [1, 3, 5]"
+            "- If there are no violating posts: []";
 
 
         string memory code =
-           "const ethers = await import('npm:ethers@5.7.0');"
+            "const ethers = await import('npm:ethers@5.7.0');"
             "const Anthropic = await import('npm:@anthropic-ai/sdk');"
-            ""
             "// Decode the bytesArgs"
             "const decoder = new ethers.utils.AbiCoder();"
-            ""
             "const objectedPosts = decoder.decode(['tuple(address author, string content, uint256 timestamp)[]'], bytesArgs[0])[0];"
-            ""
             "// Prepare the prompt with the objected posts"
             "let postsDescription = objectedPosts.map((post, index) => "
-            "  `${index}.${post.content}\n`"
-            ").join('\n');"
-            ""
+            "  `Post ${index + 1}:\nAuthor: ${post.author}\nContent: ${post.content}\nTimestamp: ${new Date(post.timestamp * 1000).toISOString()}\n`"
+            ").join('\\n');"
             "const prompt = args[0];"
-            ""
             "// Call Anthropic API"
             "const anthropic = new Anthropic.Anthropic({"
             "  apiKey: secrets.apiKey,"
@@ -86,34 +81,27 @@ contract Polikore is IReasoning {
             "          }"
             "        ]"
             "      });"
-            ""
-            "} catch (e) {"
+            "}catch(e) {"
             "    console.error('Error calling Anthropic API:', e);"
             "    response = { content: [{ text: 'Error calling Anthropic API' }] };"
             "}"
-            ""
             "function extractTagContent(xml, tagName) {"
             "    const startTag = `<${tagName}>`;"
             "    const endTag = `</${tagName}>`;"
             "    const startIndex = xml.indexOf(startTag);"
             "    const endIndex = xml.indexOf(endTag, startIndex + startTag.length);"
-            ""
             "    if (startIndex === -1 || endIndex === -1) {"
             "        return '';"
             "    }"
-            ""
             "    return xml.slice(startIndex + startTag.length, endIndex);"
             "}"
             "// Extract the result from the Anthropic response"
             "const result = response.content[0].text;"
-            ""
             "// Convert the array to a string representation"
             "const resultString = extractTagContent(result, 'violating_posts');"
-            "console.log('Result:', resultString);"
-            ""
+            "console.log('Result:',resultString);"
             "// Return the result"
             "return Functions.encodeString(resultString);";
-
         aiActionId = ReasoningHub(_hub).uploadAction(prompt, code);
     }
 
@@ -131,7 +119,7 @@ contract Polikore is IReasoning {
         emit PostObjected(objectionCount, author, content);
     }
 
-    function getArgs(bytes memory) external view override returns(Types.FunctionArgs memory) {
+    function getArgs() internal view returns(Types.FunctionArgs memory) {
         uint256 fromObjectionId = lastReviewedObjectionId;
         uint256 toObjectionId = objectionCount;
         
@@ -154,7 +142,12 @@ contract Polikore is IReasoning {
         });
     }
 
-    function receiveReasoningResult(bytes memory result, uint256 actionId, address sender) external override {
+    // AI CONTRACT
+    function execureReasoning(bytes memory secretUrl, uint256 linkAmount) external {
+        ReasoningHub(hub).executeAction(secretUrl, aiActionId, getArgs(), linkAmount, msg.sender);
+    }
+    
+    function getReasoningResult(bytes memory result, uint256 actionId, address sender) external override {
         require(msg.sender == hub, "Only hub can call this function");
         require(actionId == aiActionId, "Invalid action ID");
 
@@ -205,7 +198,6 @@ contract Polikore is IReasoning {
 
         return result;
     }
-
 
     function getPost(uint256 objectionId) external view returns (address author, string memory content, uint256 timestamp) {
         Post memory post = posts[objectionId];
