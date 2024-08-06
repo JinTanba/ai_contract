@@ -105,7 +105,14 @@ contract Polikore is IReasoning {
         aiActionId = ReasoningHub(_hub).uploadAction(prompt, code);
     }
 
-    function renewAction(string memory prompt, string memory code) external {
+    function objection(address author, string memory content) external {
+        objectionCount++;
+        posts[objectionCount] = Post(author, content, block.timestamp);
+        emit PostObjected(objectionCount, author, content);
+    }
+
+    //==================== AI CONTRACT ===============================================================
+    function setAction(string memory prompt, string memory code) external {
         require(msg.sender == gov, "only gov");
         Types.Action memory action = ReasoningHub(hub).getAction(aiActionId);
         string memory newcode = bytes(code).length > 0 ? code : action.code;
@@ -113,10 +120,25 @@ contract Polikore is IReasoning {
         aiActionId = ReasoningHub(hub).uploadAction(newPrompt, newcode);
     }
 
-    function objection(address author, string memory content) external {
-        objectionCount++;
-        posts[objectionCount] = Post(author, content, block.timestamp);
-        emit PostObjected(objectionCount, author, content);
+    function execureReasoning(bytes memory secretUrl, uint256 linkAmount) external {
+        ReasoningHub(hub).executeAction(secretUrl, aiActionId, getArgs(), linkAmount, msg.sender);
+    }
+
+    function reasoningCallback(bytes memory result, uint256 actionId, address sender) external override {
+        require(msg.sender == hub, "Only hub can call this function");
+        require(actionId == aiActionId, "Invalid action ID");
+        string memory resultString = string(result);
+        uint256[] memory blockedPostIds = _stringToUintArray(resultString);
+
+        for (uint256 i = 0; i < blockedPostIds.length; i++) {
+            uint256 postId = lastReviewedObjectionId + blockedPostIds[i];
+            if (postId <= objectionCount) {
+                blockedPosts[postId] = true;
+            }
+        }
+        uint256 newLastReviewedObjectionId = objectionCount;
+        emit PostsReviewed(lastReviewedObjectionId + 1, newLastReviewedObjectionId, blockedPostIds);
+        lastReviewedObjectionId = newLastReviewedObjectionId;
     }
 
     function getArgs() internal view returns(Types.FunctionArgs memory) {
@@ -141,30 +163,7 @@ contract Polikore is IReasoning {
             bytesArgs: bytesArgs
         });
     }
-
-    // AI CONTRACT
-    function execureReasoning(bytes memory secretUrl, uint256 linkAmount) external {
-        ReasoningHub(hub).executeAction(secretUrl, aiActionId, getArgs(), linkAmount, msg.sender);
-    }
-    
-    function getReasoningResult(bytes memory result, uint256 actionId, address sender) external override {
-        require(msg.sender == hub, "Only hub can call this function");
-        require(actionId == aiActionId, "Invalid action ID");
-
-        string memory resultString = string(result);
-        uint256[] memory blockedPostIds = _stringToUintArray(resultString);
-
-        for (uint256 i = 0; i < blockedPostIds.length; i++) {
-            uint256 postId = lastReviewedObjectionId + blockedPostIds[i];
-            if (postId <= objectionCount) {
-                blockedPosts[postId] = true;
-            }
-        }
-
-        uint256 newLastReviewedObjectionId = objectionCount;
-        emit PostsReviewed(lastReviewedObjectionId + 1, newLastReviewedObjectionId, blockedPostIds);
-        lastReviewedObjectionId = newLastReviewedObjectionId;
-    }
+    // =============================================================================================
 
     function _stringToUintArray(string memory input) internal pure returns (uint256[] memory) {
         bytes memory inputBytes = bytes(input);

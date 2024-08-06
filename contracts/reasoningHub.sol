@@ -11,9 +11,7 @@ interface IERC677 {
   event Transfer(address indexed from, address indexed to, uint256 value, bytes data);
   function transferAndCall(address to, uint256 amount, bytes memory data) external returns (bool);
 }
-interface IReasoning {
-    function getReasoningResult(bytes memory result, uint256 actionId, address sender) external;
-}
+
 interface IRouterForGetSubscriptionBalance {
     struct Subscription {
         uint96 balance;
@@ -26,6 +24,13 @@ interface IRouterForGetSubscriptionBalance {
     function getSubscription(uint64 subscriptionId) external view returns (Subscription memory);
 }
 
+// !!! !If you use ReasoningHub in your contract you have to inherit IReasoning!!!!
+// !!!! If you use ReasoningHub in your contract you have to inherit IReasoning!!!!
+interface IReasoning {
+    function reasoningCallback(bytes memory result, uint256 actionId, address sender) external;
+}
+// !!!! If you use ReasoningHub in your contract you have to inherit IReasoning!!!!
+// !!!! If you use ReasoningHub in your contract you have to inherit IReasoning!!!!
 
 contract ReasoningHub is FunctionsClient, ConfirmedOwner {
     using FunctionsRequest for FunctionsRequest.Request;
@@ -101,7 +106,7 @@ contract ReasoningHub is FunctionsClient, ConfirmedOwner {
         uint256 payedLink = Storage._linkDeposit()[_promise.sender];
         uint256 newBalance = getSubscriptionBalance();
         uint256 usedLink = _promise.oldBalance - newBalance;
-        IReasoning(_promise.clientAddress).getReasoningResult(response, _promise.actionId, _promise.sender);
+        IReasoning(_promise.clientAddress).reasoningCallback(response, _promise.actionId, _promise.sender);
         refund(payedLink - usedLink, _promise.sender);
         emit OnchainReasoning(_promise.actionId, response, _promise.clientAddress, _promise.sender, _promise.functionArgs.args, _promise.functionArgs.bytesArgs);
         emit Response(requestId, response, err);
